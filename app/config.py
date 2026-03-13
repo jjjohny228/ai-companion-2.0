@@ -14,11 +14,12 @@ load_dotenv(BASE_DIR / ".env")
 @dataclass(slots=True)
 class Settings:
     bot_token: str
-    openai_api_key: str
-    openai_model: str
+    xai_api_key: str
+    xai_model: str
     admin_ids: tuple[int, ...]
     db_path: Path
     assets_dir: Path
+    subscription_media_path: Path | None
     default_free_avatar_messages: int
     summary_window_size: int
     summary_batch_size: int
@@ -32,13 +33,15 @@ def _parse_admin_ids(raw_value: str | None) -> tuple[int, ...]:
 
 
 def load_settings() -> Settings:
+    subscription_media_raw = os.getenv("SUBSCRIPTION_MEDIA_PATH", "").strip()
     return Settings(
         bot_token=os.getenv("BOT_TOKEN", ""),
-        openai_api_key=os.getenv("OPENAI_API_KEY", ""),
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+        xai_api_key=os.getenv("XAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
+        xai_model=os.getenv("XAI_MODEL", "grok-3-latest"),
         admin_ids=_parse_admin_ids(os.getenv("ADMIN_IDS")),
         db_path=Path(os.getenv("DB_PATH", BASE_DIR / "data" / "bot.sqlite3")),
         assets_dir=Path(os.getenv("ASSETS_DIR", BASE_DIR / "assets" / "avatars")),
+        subscription_media_path=Path(subscription_media_raw) if subscription_media_raw else None,
         default_free_avatar_messages=int(os.getenv("DEFAULT_FREE_AVATAR_MESSAGES", "10")),
         summary_window_size=int(os.getenv("SUMMARY_WINDOW_SIZE", "10")),
         summary_batch_size=int(os.getenv("SUMMARY_BATCH_SIZE", "10")),

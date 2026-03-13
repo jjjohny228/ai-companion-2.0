@@ -20,10 +20,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "menu_chat": "Chat",
         "menu_avatar": "Change avatar",
         "menu_language": "Language",
-        "menu_subscription": "Subscription",
+        "menu_subscription": "Messages",
+        "menu_gift": "Send gift",
         "admin_menu": "Admin menu",
         "stats_empty": "No stats yet.",
         "gift_no_photos": "No new photos are available for this avatar right now.",
+        "gift_choose": "Choose a gift.",
+        "gift_success": "Gift sent successfully.",
+        "gift_locked": "This gift does not unlock a premium photo.",
     },
     "ru": {
         "welcome": "Привет! Перед началом общения подпишитесь на все обязательные каналы.",
@@ -41,10 +45,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "menu_chat": "Чат",
         "menu_avatar": "Сменить аватара",
         "menu_language": "Язык",
-        "menu_subscription": "Подписка",
+        "menu_subscription": "Сообщения",
+        "menu_gift": "Подарок",
         "admin_menu": "Админ меню",
         "stats_empty": "Статистики пока нет.",
         "gift_no_photos": "Для этого аватара пока нет новых фото.",
+        "gift_choose": "Выберите подарок.",
+        "gift_success": "Подарок успешно отправлен.",
+        "gift_locked": "Этот подарок не открывает премиум фото.",
     },
     "uk": {
         "welcome": "Привiт! Перед початком спiлкування пiдпишiться на всi обов'язковi канали.",
@@ -62,10 +70,14 @@ TEXTS: dict[str, dict[str, str]] = {
         "menu_chat": "Чат",
         "menu_avatar": "Змiнити аватара",
         "menu_language": "Мова",
-        "menu_subscription": "Пiдписка",
+        "menu_subscription": "Повiдомлення",
+        "menu_gift": "Подарунок",
         "admin_menu": "Адмін меню",
         "stats_empty": "Статистики поки немає.",
         "gift_no_photos": "Для цього аватара поки немає нових фото.",
+        "gift_choose": "Оберiть подарунок.",
+        "gift_success": "Подарунок успiшно вiдправлено.",
+        "gift_locked": "Цей подарунок не вiдкриває премiум фото.",
     },
 }
 
@@ -81,15 +93,18 @@ def format_channels_message(language: str, channel_links: list[str]) -> str:
     return "\n".join([intro, "", *channel_links])
 
 
-def format_plans(language: str) -> str:
+def format_plans(language: str, available_messages: int) -> str:
     header = {
         "en": "Choose a plan:",
         "ru": "Выберите тариф:",
         "uk": "Оберiть тариф:",
     }.get(language, "Choose a plan:")
-    rows = [header]
-    for plan in SUBSCRIPTION_PLANS:
-        rows.append(f"- {plan.title}: {plan.stars_price} Stars")
+    available_label = {
+        "en": f"Available messages: {available_messages}",
+        "ru": f"Доступно сообщений: {available_messages}",
+        "uk": f"Доступно повiдомлень: {available_messages}",
+    }.get(language, f"Available messages: {available_messages}")
+    rows = [available_label, "", header]
     return "\n".join(rows)
 
 

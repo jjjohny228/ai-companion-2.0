@@ -50,6 +50,7 @@ class Avatar(BaseModel):
     display_name = CharField()
     description = TextField(null=True)
     system_prompt = TextField()
+    main_photo_path = TextField(null=True)
     is_active = BooleanField(default=True)
     sort_order = IntegerField(default=0)
     created_at = DateTimeField(default=datetime.utcnow)
@@ -118,6 +119,52 @@ class ChannelJoinRequest(BaseModel):
         indexes = ((("user", "channel"), True),)
 
 
+class Gift(BaseModel):
+    id = AutoField()
+    slug = CharField(unique=True)
+    title = CharField()
+    description = TextField()
+    stars_price = IntegerField()
+    photo_path = TextField(null=True)
+    is_active = BooleanField(default=True)
+    created_at = DateTimeField(default=datetime.utcnow)
+
+
+class PremiumPhoto(BaseModel):
+    id = AutoField()
+    avatar = ForeignKeyField(Avatar, backref="premium_photos", on_delete="CASCADE")
+    photo_path = TextField()
+    description = TextField(default="")
+    stars_price = IntegerField()
+    is_active = BooleanField(default=True)
+    created_at = DateTimeField(default=datetime.utcnow)
+
+
+class GiftPurchase(BaseModel):
+    id = AutoField()
+    user = ForeignKeyField(User, backref="gift_purchases", on_delete="CASCADE")
+    avatar = ForeignKeyField(Avatar, backref="gift_purchases", on_delete="CASCADE")
+    gift = ForeignKeyField(Gift, backref="purchases", on_delete="CASCADE")
+    telegram_payment_charge_id = CharField(unique=True)
+    provider_payment_charge_id = CharField(null=True)
+    stars_amount = IntegerField()
+    rewarded_premium_photo = ForeignKeyField(PremiumPhoto, null=True, backref="gift_rewards", on_delete="SET NULL")
+    status = CharField(default="paid")
+    created_at = DateTimeField(default=datetime.utcnow)
+
+
+class PremiumPhotoPurchase(BaseModel):
+    id = AutoField()
+    user = ForeignKeyField(User, backref="premium_photo_purchases", on_delete="CASCADE")
+    avatar = ForeignKeyField(Avatar, backref="premium_photo_purchases", on_delete="CASCADE")
+    premium_photo = ForeignKeyField(PremiumPhoto, backref="purchases", on_delete="CASCADE")
+    telegram_payment_charge_id = CharField(unique=True)
+    provider_payment_charge_id = CharField(null=True)
+    stars_amount = IntegerField()
+    status = CharField(default="paid")
+    created_at = DateTimeField(default=datetime.utcnow)
+
+
 MODELS = (
     User,
     Channel,
@@ -128,4 +175,8 @@ MODELS = (
     Payment,
     PhotoSendHistory,
     ChannelJoinRequest,
+    Gift,
+    PremiumPhoto,
+    GiftPurchase,
+    PremiumPhotoPurchase,
 )

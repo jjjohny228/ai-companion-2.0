@@ -20,6 +20,11 @@ class BillingService:
         return profile.paid_message_balance > 0 or profile.free_messages_used < free_limit
 
     @staticmethod
+    def available_messages(profile: UserProfile, free_limit: int) -> int:
+        free_left = max(free_limit - profile.free_messages_used, 0)
+        return free_left + max(profile.paid_message_balance, 0)
+
+    @staticmethod
     def consume_avatar_message(profile: UserProfile, free_limit: int) -> None:
         if profile.paid_message_balance > 0:
             profile.paid_message_balance -= 1

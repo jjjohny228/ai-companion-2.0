@@ -6,4 +6,5 @@ from pathlib import Path
 def ensure_avatar_dirs(base_dir: Path, avatar_id: int) -> Path:
     avatar_dir = base_dir / str(avatar_id)
     (avatar_dir / "photos").mkdir(parents=True, exist_ok=True)
+    (avatar_dir / "premium").mkdir(parents=True, exist_ok=True)
     return avatar_dir
