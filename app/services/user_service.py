@@ -38,3 +38,15 @@ class UserService:
         profile.language = language
         profile.updated_at = datetime.utcnow()
         profile.save()
+
+    @staticmethod
+    def get_or_create_by_telegram_id(telegram_id: int) -> tuple[User, UserProfile]:
+        user, _ = User.get_or_create(
+            telegram_id=telegram_id,
+            defaults={
+                "language_code": DEFAULT_LANGUAGE,
+                "is_admin": False,
+            },
+        )
+        profile, _ = UserProfile.get_or_create(user=user, defaults={"language": DEFAULT_LANGUAGE})
+        return user, profile

@@ -42,11 +42,12 @@ def main_menu_keyboard(
     language_text: str,
     subscription_text: str,
     gift_text: str,
+    premium_text: str,
 ) -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text=chat_text), KeyboardButton(text=avatar_text))
     builder.row(KeyboardButton(text=language_text), KeyboardButton(text=subscription_text))
-    builder.row(KeyboardButton(text=gift_text))
+    builder.row(KeyboardButton(text=gift_text), KeyboardButton(text=premium_text))
     return builder.as_markup(resize_keyboard=True)
 
 
@@ -78,6 +79,7 @@ def admin_menu_keyboard() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text="Statistics"), KeyboardButton(text="Avatars"))
     builder.row(KeyboardButton(text="Gifts"), KeyboardButton(text="Add channel"))
+    builder.row(KeyboardButton(text="Broadcast"), KeyboardButton(text="Send user"))
     builder.row(KeyboardButton(text="Download DB"))
     return builder.as_markup(resize_keyboard=True)
 
@@ -87,6 +89,16 @@ def gifts_keyboard(gifts: list[Gift]) -> InlineKeyboardMarkup:
     for gift in gifts:
         builder.button(text=f"{gift.title} - {gift.stars_price} Stars", callback_data=f"gift:{gift.id}")
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def premium_photos_keyboard(avatar_id: int, prev_photo_id: int | None, next_photo_id: int | None) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if prev_photo_id:
+        builder.button(text="⬅️", callback_data=f"premium_gallery:{avatar_id}:{prev_photo_id}")
+    if next_photo_id:
+        builder.button(text="➡️", callback_data=f"premium_gallery:{avatar_id}:{next_photo_id}")
+    builder.adjust(2)
     return builder.as_markup()
 
 

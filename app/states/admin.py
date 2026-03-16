@@ -35,3 +35,17 @@ class AdminGiftCreateState(StatesGroup):
 
 class AdminGiftEditState(StatesGroup):
     waiting_value = State()
+
+
+class AdminBroadcastState(StatesGroup):
+    waiting_text = State()
+    waiting_button = State()
+    waiting_media = State()
+
+
+class AdminDirectSendState(StatesGroup):
+    waiting_user_id = State()
+    waiting_text = State()
+    waiting_button = State()
+    waiting_media = State()
+    waiting_stars = State()

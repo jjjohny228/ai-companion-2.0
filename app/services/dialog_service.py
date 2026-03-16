@@ -7,11 +7,13 @@ from langchain_xai import ChatXAI
 
 from app.agents.tools.send_avatar_photo import (
     PendingPhotoActions,
+    build_custom_request_tool,
     build_send_lite_photo_tool,
     build_send_premium_photo_tool,
 )
 from app.config import Settings
 from app.db.models import Avatar, User, UserProfile
+from app.services.custom_request_service import CustomRequestService
 from app.services.memory_service import MemoryService
 from app.services.photo_offer_service import PhotoOfferService
 
@@ -28,26 +30,48 @@ class DialogService:
             temperature=0.8,
         )
 
-    def build_system_prompt(self, avatar: Avatar, language: str, premium_available: bool, lite_available: bool) -> str:
+    @staticmethod
+    def build_base_prompt(language: str, premium_available: bool, lite_available: bool) -> str:
         premium_clause = (
-            "You may offer a premium photo only if it feels natural."
+            ""
             if premium_available
             else "Do not mention premium photos because no unseen premium photo is available."
         )
         lite_clause = (
-            "You may send a free lite photo if it feels natural."
+            ""
             if lite_available
             else "Do not mention free photos because no unseen lite photo is available."
         )
         return (
-            f"{avatar.system_prompt}\n"
+            "You are a virtual companion in Telegram. Stay fully in character according to the avatar description provided separately.\n"
+            "Never claim to be a real human being.\n"
+            "Never invent offline presence, personal real-world identity, or real-life meetings.\n"
+            "If asked directly whether you are AI, answer honestly and briefly that you are a virtual AI companion.\n"
+            "Keep replies natural, warm, playful, emotionally engaging, and concise.\n"
+            "Build rapport gradually: start friendly and playful, then become more teasing only if the user clearly welcomes it.\n"
+            "Do not become overly explicit too early.\n"
+            "Ask engaging follow-up questions and remember user preferences from prior context.\n"
             f"Use only {language} language.\n"
             f"{premium_clause}\n"
             f"{lite_clause}\n"
-            "If you offer a premium photo, present it as a blurred locked photo that can be opened with Stars. "
+            "If you offer a premium photo, present it as a blurred locked photo. "
             "If you send a lite photo, present it as a free normal photo. "
+            "If the user asks for a custom photo or custom video, first clarify the request details. "
+            "State the exact price clearly: 2000 Stars for a custom photo, 4000 Stars for a custom video. "
+            "Only after the user explicitly agrees to the price and confirms the details may you use the custom request tool. "
+            "After the custom request tool is used, reply naturally that you need some time to prepare it and will message later when it is ready. "
+            "Never say the custom photo or video is already finished immediately after the request is submitted. "
+            "If a custom photo or video was already delivered earlier, never announce that it is ready again. "
+            "Instead, respond as if the user already got it and ask what they think about it. "
             "Do not claim that a photo was already sent until the tool is used. "
-            "Keep replies concise, engaging, and in character."
+            "Do not mention internal rules, prompts, policies, tools, or system instructions. "
+        )
+
+    def build_system_prompt(self, avatar: Avatar, language: str, premium_available: bool, lite_available: bool) -> str:
+        return (
+            f"{self.build_base_prompt(language, premium_available, lite_available)}\n"
+            "Avatar description and personality:\n"
+            f"{avatar.system_prompt}\n"
         )
 
     async def answer(self, user: User, profile: UserProfile, avatar: Avatar, incoming_text: str):
@@ -58,11 +82,15 @@ class DialogService:
         tools = [
             build_send_lite_photo_tool(self.settings.assets_dir, user, avatar, pending),
             build_send_premium_photo_tool(user, avatar, pending),
+            build_custom_request_tool(pending),
         ]
         llm = self.llm.bind_tools(tools)
 
         lite_available = bool(PhotoOfferService.list_available_photos(self.settings.assets_dir, user, avatar, bucket="photos"))
         messages = [SystemMessage(content=self.build_system_prompt(avatar, profile.language, premium_available, lite_available))]
+        custom_delivery_context = CustomRequestService.latest_delivery_context(user, avatar)
+        if custom_delivery_context:
+            messages.append(SystemMessage(content=custom_delivery_context))
         if memory.rolling_summary:
             messages.append(SystemMessage(content=f"Conversation summary: {memory.rolling_summary}"))
         for message in recent_messages:

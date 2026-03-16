@@ -7,17 +7,22 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, Message
+from aiogram.types.input_paid_media_photo import InputPaidMediaPhoto
+from aiogram.types.input_paid_media_video import InputPaidMediaVideo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.config import Settings
-from app.db.models import Avatar, Channel, Gift
+from app.db.models import Avatar, Channel, Gift, User
 from app.keyboards.common import admin_avatar_keyboard, admin_gift_keyboard, admin_menu_keyboard, admin_stats_keyboard
+from app.services.custom_request_service import CustomRequestService
 from app.services.stats_service import StatsService
 from app.services.user_service import UserService
 from app.states.admin import (
     AdminAvatarCreateState,
     AdminAvatarEditState,
     AdminAvatarUploadState,
+    AdminBroadcastState,
+    AdminDirectSendState,
     AdminGiftCreateState,
     AdminGiftEditState,
     AdminPremiumPhotoState,
@@ -112,6 +117,49 @@ def build_router(settings: Settings) -> Router:
 
     def avatar_bucket_dir(avatar_id: int, bucket: str) -> Path:
         return ensure_avatar_dirs(settings.assets_dir, avatar_id) / bucket
+
+    def optional_button_markup(raw_button: str | None):
+        if not raw_button:
+            return None
+        parts = [item.strip() for item in raw_button.split("|", 1)]
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            return None
+        builder = InlineKeyboardBuilder()
+        builder.button(text=parts[0], url=parts[1])
+        return builder.as_markup()
+
+    async def send_to_user(chat_id: int, text: str, media_kind: str | None, media_path: str | None, button: str | None, bot) -> None:
+        reply_markup = optional_button_markup(button)
+        if media_kind == "photo" and media_path:
+            await bot.send_photo(chat_id, FSInputFile(media_path), caption=text, reply_markup=reply_markup)
+            return
+        if media_kind == "video" and media_path:
+            await bot.send_video(chat_id, FSInputFile(media_path), caption=text, reply_markup=reply_markup)
+            return
+        await bot.send_message(chat_id, text, reply_markup=reply_markup)
+
+    async def send_paid_media_to_user(
+        chat_id: int,
+        text: str,
+        media_kind: str,
+        media_file_id: str,
+        star_count: int,
+        button: str | None,
+        bot,
+    ) -> None:
+        reply_markup = optional_button_markup(button)
+        if media_kind == "photo":
+            media = [InputPaidMediaPhoto(media=media_file_id)]
+        else:
+            media = [InputPaidMediaVideo(media=media_file_id)]
+        await bot.send_paid_media(
+            chat_id=chat_id,
+            star_count=star_count,
+            media=media,
+            caption=text,
+            reply_markup=reply_markup,
+            protect_content=True,
+        )
 
     async def start_premium_photo_metadata_flow(state: FSMContext, avatar_id: int, saved_path: Path) -> None:
         await state.update_data(premium_avatar_id=avatar_id, pending_premium_photo_path=str(saved_path))
@@ -604,6 +652,30 @@ def build_router(settings: Settings) -> Router:
         if not message.from_user or not is_admin(message.from_user.id):
             return
         current_state = await state.get_state()
+        if current_state == AdminBroadcastState.waiting_media.state:
+            data = await state.get_data()
+            file_id = message.photo[-1].file_id
+            users = list(User.select())
+            sent = 0
+            for user in users:
+                try:
+                    await message.bot.send_photo(
+                        user.telegram_id,
+                        file_id,
+                        caption=data["broadcast_text"],
+                        reply_markup=optional_button_markup(data.get("broadcast_button")),
+                    )
+                    sent += 1
+                except Exception:
+                    continue
+            await state.clear()
+            await message.answer(f"Broadcast photo sent to {sent} users.")
+            return
+        if current_state == AdminDirectSendState.waiting_media.state:
+            await state.update_data(direct_media_kind="photo", direct_media_file_id=message.photo[-1].file_id)
+            await state.set_state(AdminDirectSendState.waiting_stars)
+            await message.answer("Send price in Stars for unlocking this photo.")
+            return
         if current_state == AdminAvatarCreateState.waiting_main_photo.state:
             return
         if current_state == AdminAvatarEditState.waiting_value.state:
@@ -735,5 +807,173 @@ def build_router(settings: Settings) -> Router:
             await message.answer("Database file not found.")
             return
         await message.answer_document(FSInputFile(db_file), caption="SQLite database")
+
+    @router.message(F.text == "Broadcast")
+    async def broadcast_start(message: Message, state: FSMContext) -> None:
+        if not message.from_user or not is_admin(message.from_user.id):
+            return
+        await state.set_state(AdminBroadcastState.waiting_text)
+        await message.answer("Send broadcast text.")
+
+    @router.message(AdminBroadcastState.waiting_text, F.text)
+    async def broadcast_text(message: Message, state: FSMContext) -> None:
+        if not message.text:
+            return
+        await state.update_data(broadcast_text=message.text.strip())
+        await state.set_state(AdminBroadcastState.waiting_button)
+        await message.answer("Send button as label|url or type skip.")
+
+    @router.message(AdminBroadcastState.waiting_button, F.text)
+    async def broadcast_button(message: Message, state: FSMContext) -> None:
+        if not message.text:
+            return
+        button_text = None if message.text.strip().lower() == "skip" else message.text.strip()
+        await state.update_data(broadcast_button=button_text)
+        await state.set_state(AdminBroadcastState.waiting_media)
+        await message.answer("Send photo/video for broadcast or type skip.")
+
+    @router.message(AdminBroadcastState.waiting_media, F.text)
+    async def broadcast_without_media(message: Message, state: FSMContext) -> None:
+        if not message.text or message.text.strip().lower() != "skip":
+            return
+        data = await state.get_data()
+        users = list(User.select())
+        sent = 0
+        for user in users:
+            try:
+                await send_to_user(user.telegram_id, data["broadcast_text"], None, None, data.get("broadcast_button"), message.bot)
+                sent += 1
+            except Exception:
+                continue
+        await state.clear()
+        await message.answer(f"Broadcast sent to {sent} users.")
+
+    @router.message(AdminBroadcastState.waiting_media, F.photo)
+    async def broadcast_photo(message: Message, state: FSMContext) -> None:
+        data = await state.get_data()
+        file_id = message.photo[-1].file_id
+        users = list(User.select())
+        sent = 0
+        for user in users:
+            try:
+                await message.bot.send_photo(
+                    user.telegram_id,
+                    file_id,
+                    caption=data["broadcast_text"],
+                    reply_markup=optional_button_markup(data.get("broadcast_button")),
+                )
+                sent += 1
+            except Exception:
+                continue
+        await state.clear()
+        await message.answer(f"Broadcast photo sent to {sent} users.")
+
+    @router.message(AdminBroadcastState.waiting_media, F.video)
+    async def broadcast_video(message: Message, state: FSMContext) -> None:
+        data = await state.get_data()
+        file_id = message.video.file_id
+        users = list(User.select())
+        sent = 0
+        for user in users:
+            try:
+                await message.bot.send_video(
+                    user.telegram_id,
+                    file_id,
+                    caption=data["broadcast_text"],
+                    reply_markup=optional_button_markup(data.get("broadcast_button")),
+                )
+                sent += 1
+            except Exception:
+                continue
+        await state.clear()
+        await message.answer(f"Broadcast video sent to {sent} users.")
+
+    @router.message(F.text == "Send user")
+    async def direct_send_start(message: Message, state: FSMContext) -> None:
+        if not message.from_user or not is_admin(message.from_user.id):
+            return
+        await state.set_state(AdminDirectSendState.waiting_user_id)
+        await message.answer("Send target user telegram id.")
+
+    @router.message(AdminDirectSendState.waiting_user_id, F.text)
+    async def direct_send_user_id(message: Message, state: FSMContext) -> None:
+        if not message.text or not message.text.strip().isdigit():
+            await message.answer("Send numeric user id.")
+            return
+        await state.update_data(target_user_id=int(message.text.strip()))
+        await state.set_state(AdminDirectSendState.waiting_text)
+        await message.answer("Send text or caption.")
+
+    @router.message(AdminDirectSendState.waiting_text, F.text)
+    async def direct_send_text(message: Message, state: FSMContext) -> None:
+        if not message.text:
+            return
+        await state.update_data(direct_text=message.text.strip())
+        await state.set_state(AdminDirectSendState.waiting_button)
+        await message.answer("Send button as label|url or type skip.")
+
+    @router.message(AdminDirectSendState.waiting_button, F.text)
+    async def direct_send_button(message: Message, state: FSMContext) -> None:
+        if not message.text:
+            return
+        button_text = None if message.text.strip().lower() == "skip" else message.text.strip()
+        await state.update_data(direct_button=button_text)
+        await state.set_state(AdminDirectSendState.waiting_media)
+        await message.answer("Send photo/video or type skip.")
+
+    @router.message(AdminDirectSendState.waiting_media, F.text)
+    async def direct_send_without_media(message: Message, state: FSMContext) -> None:
+        if not message.text or message.text.strip().lower() != "skip":
+            return
+        data = await state.get_data()
+        await send_to_user(
+            data["target_user_id"],
+            data["direct_text"],
+            None,
+            None,
+            data.get("direct_button"),
+            message.bot,
+        )
+        await state.clear()
+        await message.answer("Message sent.")
+
+    @router.message(AdminDirectSendState.waiting_media, F.photo)
+    async def direct_send_photo(message: Message, state: FSMContext) -> None:
+        await state.update_data(direct_media_kind="photo", direct_media_file_id=message.photo[-1].file_id)
+        await state.set_state(AdminDirectSendState.waiting_stars)
+        await message.answer("Send price in Stars for unlocking this photo.")
+
+    @router.message(AdminDirectSendState.waiting_media, F.video)
+    async def direct_send_video(message: Message, state: FSMContext) -> None:
+        await state.update_data(direct_media_kind="video", direct_media_file_id=message.video.file_id)
+        await state.set_state(AdminDirectSendState.waiting_stars)
+        await message.answer("Send price in Stars for unlocking this video.")
+
+    @router.message(AdminDirectSendState.waiting_stars, F.text)
+    async def direct_send_stars(message: Message, state: FSMContext) -> None:
+        if not message.text or not message.text.strip().isdigit():
+            await message.answer("Send numeric Stars amount, for example 2000.")
+            return
+        data = await state.get_data()
+        stars_price = int(message.text.strip())
+        await send_paid_media_to_user(
+            chat_id=data["target_user_id"],
+            text=data["direct_text"],
+            media_kind=data["direct_media_kind"],
+            media_file_id=data["direct_media_file_id"],
+            star_count=stars_price,
+            button=data.get("direct_button"),
+            bot=message.bot,
+        )
+        target_user = User.get_or_none(User.telegram_id == data["target_user_id"])
+        if target_user:
+            CustomRequestService.mark_delivered(
+                user=target_user,
+                media_type=data["direct_media_kind"],
+                stars_price=stars_price,
+                caption_text=data["direct_text"],
+            )
+        await state.clear()
+        await message.answer("Paid media sent.")
 
     return router

@@ -8,15 +8,18 @@ Telegram bot scaffold on `aiogram`, `langchain`, `langchain-xai`, `sqlite`, `pee
 - avatar cards with main photo, description and left/right navigation;
 - avatar selection with active/inactive flag;
 - one language shared by bot UI and companion replies;
-- free limit of 10 avatar replies, then payment in Telegram Stars;
+- free limit of 20 avatar replies;
+- optional channel subscription bonus that gives 20 extra free replies after the free limit is reached;
 - plans by bot reply quota: 50 / 100 / 500;
 - premium photos as separate paid items in Stars, offered by the agent as blurred paid media;
 - custom gifts in Stars with optional premium-photo reward when the gift value covers a photo;
+- custom photo/video requests are forwarded to admins with user id, avatar, description, and default pricing;
 - rolling memory: summary + last 10 messages;
 - avatar storage in `assets/avatars/<avatar_id>/main.jpg` and `photos/`;
 - premium photos stored as separate DB records with `avatar_id`, `photo_path`, and `stars_price`;
 - FSM admin flow for avatar creation and editing;
 - admin sections for avatar management, gift management, inline statistics, channels, and database export.
+- admin broadcast and direct-send tools for messaging all users or one user with optional media and button.
 
 ## Quick start
 
@@ -72,6 +75,13 @@ This means the SQLite database and uploaded avatar media survive container resta
 
 - The agent can send a free lite photo normally
 - The agent can also offer one unseen premium photo as native Telegram blurred paid media
+- Users can also open `Premium photos` in the main menu and browse blurred paid photos with pagination
 - Before sending the paid media, the bot generates an in-character waiting message
 - The bot waits 20-40 seconds, then sends the blurred paid media without caption
 - Gift rewards use the same delayed delivery, but with a thankful in-character message first
+
+## Messages
+
+- `Messages` in the main menu shows remaining available replies
+- Available replies = free replies left + paid replies left
+- After the first 20 free replies, the bot offers channel subscription for +20 bonus replies or paid packages

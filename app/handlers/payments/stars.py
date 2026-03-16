@@ -27,7 +27,7 @@ def build_router(settings: Settings) -> Router:
             return
         await callback.message.answer_invoice(
             title=plan.title,
-            description=f"{plan.bot_message_quota} bot replies",
+            description=plan.title,
             payload=plan.code,
             currency="XTR",
             prices=[LabeledPrice(label=plan.title, amount=plan.stars_price)],

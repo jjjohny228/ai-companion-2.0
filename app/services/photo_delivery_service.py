@@ -10,6 +10,7 @@ from langchain_xai import ChatXAI
 
 from app.config import Settings
 from app.db.models import Avatar
+from app.services.dialog_service import DialogService
 
 
 class PhotoDeliveryService:
@@ -35,7 +36,11 @@ class PhotoDeliveryService:
                 )
             response = await self.llm.ainvoke(
                 [
-                    ("system", f"{avatar.system_prompt}\nUse only {language} language."),
+                    (
+                        "system",
+                        f"{DialogService.build_base_prompt(language, premium_available=True, lite_available=True)}\n"
+                        f"Avatar description and personality:\n{avatar.system_prompt}",
+                    ),
                     ("human", instruction),
                 ]
             )

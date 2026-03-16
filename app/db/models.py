@@ -63,6 +63,7 @@ class UserProfile(BaseModel):
     language = CharField(default="en")
     paid_message_balance = IntegerField(default=0)
     free_messages_used = IntegerField(default=0)
+    channel_bonus_granted = BooleanField(default=False)
     created_at = DateTimeField(default=datetime.utcnow)
     updated_at = DateTimeField(default=datetime.utcnow)
 
@@ -165,6 +166,30 @@ class PremiumPhotoPurchase(BaseModel):
     created_at = DateTimeField(default=datetime.utcnow)
 
 
+class CustomContentRequest(BaseModel):
+    id = AutoField()
+    user = ForeignKeyField(User, backref="custom_requests", on_delete="CASCADE")
+    avatar = ForeignKeyField(Avatar, backref="custom_requests", on_delete="CASCADE")
+    media_type = CharField()
+    description = TextField()
+    stars_price = IntegerField()
+    status = CharField(default="pending")
+    fulfilled_at = DateTimeField(null=True)
+    created_at = DateTimeField(default=datetime.utcnow)
+
+
+class CustomContentDelivery(BaseModel):
+    id = AutoField()
+    user = ForeignKeyField(User, backref="custom_deliveries", on_delete="CASCADE")
+    avatar = ForeignKeyField(Avatar, null=True, backref="custom_deliveries", on_delete="SET NULL")
+    request = ForeignKeyField(CustomContentRequest, null=True, backref="deliveries", on_delete="SET NULL")
+    media_type = CharField()
+    description = TextField(default="")
+    caption_text = TextField(default="")
+    stars_price = IntegerField(default=0)
+    created_at = DateTimeField(default=datetime.utcnow)
+
+
 MODELS = (
     User,
     Channel,
@@ -179,4 +204,6 @@ MODELS = (
     PremiumPhoto,
     GiftPurchase,
     PremiumPhotoPurchase,
+    CustomContentRequest,
+    CustomContentDelivery,
 )

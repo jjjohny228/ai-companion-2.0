@@ -55,3 +55,17 @@ class PremiumPhotoService:
             return None
         affordable.sort(key=lambda item: (item.stars_price, item.id), reverse=True)
         return affordable[0]
+
+    @staticmethod
+    def neighbors(photos: list[PremiumPhoto], current_photo_id: int) -> tuple[int | None, int | None]:
+        if not photos:
+            return None, None
+        ids = [photo.id for photo in photos]
+        if current_photo_id not in ids:
+            return None, None
+        if len(ids) == 1:
+            return None, None
+        index = ids.index(current_photo_id)
+        prev_id = ids[(index - 1) % len(ids)]
+        next_id = ids[(index + 1) % len(ids)]
+        return prev_id, next_id

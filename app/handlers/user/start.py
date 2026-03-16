@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
 from html import escape
+from pathlib import Path
 
 from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery, ChatJoinRequest, FSInputFile, Message
+from aiogram.types.input_paid_media_photo import InputPaidMediaPhoto
 
 from app.config import Settings
 from app.keyboards.common import (
@@ -12,15 +13,17 @@ from app.keyboards.common import (
     gifts_keyboard,
     language_keyboard,
     main_menu_keyboard,
+    premium_photos_keyboard,
     subscription_keyboard,
     subscription_plans_keyboard,
 )
 from app.services.avatar_service import AvatarService
 from app.services.billing_service import BillingService
 from app.services.gift_service import GiftService
+from app.services.premium_photo_service import PremiumPhotoService
 from app.services.subscription_gate import SubscriptionGateService
 from app.services.user_service import UserService
-from app.texts import format_channels_message, format_plans, tr
+from app.texts import format_plans, tr
 
 
 def build_router(settings: Settings) -> Router:
@@ -42,9 +45,12 @@ def build_router(settings: Settings) -> Router:
         else:
             await target_message.answer(caption, reply_markup=avatar_keyboard(avatar, has_prev, has_next))
 
-    async def send_subscription_plans(message: Message, language: str) -> None:
-        user, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
-        available_messages = BillingService.available_messages(profile, settings.default_free_avatar_messages)
+    async def send_messages_menu(message: Message, language: str) -> None:
+        _, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
+        effective_limit = BillingService.effective_free_limit(
+            profile, settings.default_free_avatar_messages, settings.channel_bonus_messages
+        )
+        available_messages = BillingService.available_messages(profile, effective_limit)
         plan_rows = [(plan.code, f"{plan.title} - {plan.stars_price} Stars") for plan in BillingService.list_plans()]
         if settings.subscription_media_path and settings.subscription_media_path.exists():
             await message.answer_photo(
@@ -58,19 +64,44 @@ def build_router(settings: Settings) -> Router:
                 reply_markup=subscription_plans_keyboard(plan_rows),
             )
 
-    @router.message(F.text == "/start")
-    async def start_handler(message: Message, bot: Bot) -> None:
-        if not message.from_user:
-            return
-        user, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
-        language = profile.language
+    async def send_channel_bonus_offer(message: Message, language: str) -> None:
         channels = SubscriptionGateService.active_channels()
         if channels:
             await message.answer(
-                format_channels_message(language, SubscriptionGateService.channel_links()),
+                tr(language, "channel_bonus_offer"),
                 reply_markup=subscription_keyboard(channels, tr(language, "check_subscription")),
             )
+        await send_messages_menu(message, language)
+
+    async def send_premium_gallery(message: Message, telegram_user_id: int, avatar_id: int, photo_id: int | None, language: str) -> None:
+        avatar = AvatarService.get_active(avatar_id)
+        if not avatar:
+            await message.answer("Avatar not found.")
             return
+        user, _ = UserService.get_or_create_by_telegram_id(telegram_user_id)
+        available = PremiumPhotoService.available_for_user(avatar, user)
+        if not available:
+            await message.answer(tr(language, "gift_no_photos"))
+            return
+        current = next((item for item in available if item.id == photo_id), available[0])
+        prev_photo_id, next_photo_id = PremiumPhotoService.neighbors(available, current.id)
+        caption = current.description or avatar.display_name
+        await message.bot.send_paid_media(
+            chat_id=message.chat.id,
+            star_count=current.stars_price,
+            media=[InputPaidMediaPhoto(media=FSInputFile(current.photo_path))],
+            payload=f"premium_photo:{current.id}",
+            caption=caption,
+            reply_markup=premium_photos_keyboard(avatar.id, prev_photo_id, next_photo_id),
+            protect_content=True,
+        )
+
+    @router.message(F.text == "/start")
+    async def start_handler(message: Message) -> None:
+        if not message.from_user:
+            return
+        _, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
+        language = profile.language
         if not profile.selected_avatar_id:
             await message.answer(tr(language, "choose_language"), reply_markup=language_keyboard())
             return
@@ -82,6 +113,7 @@ def build_router(settings: Settings) -> Router:
                 tr(language, "menu_language"),
                 tr(language, "menu_subscription"),
                 tr(language, "menu_gift"),
+                tr(language, "menu_premium"),
             ),
         )
 
@@ -89,26 +121,26 @@ def build_router(settings: Settings) -> Router:
     async def check_subscription_handler(callback: CallbackQuery, bot: Bot) -> None:
         if not callback.from_user or not callback.message:
             return
-        user, profile = UserService.get_or_create_from_telegram(callback.from_user, settings.admin_ids)
-        is_allowed = await SubscriptionGateService.check_all(bot, callback.from_user.id)
+        _, profile = UserService.get_or_create_from_telegram(callback.from_user, settings.admin_ids)
         language = profile.language
-        if not is_allowed:
+        if not await SubscriptionGateService.check_all(bot, callback.from_user.id):
             await callback.message.answer(tr(language, "subscription_missing"))
             await callback.answer()
             return
-        if not profile.selected_avatar_id:
-            await callback.message.answer(tr(language, "choose_language"), reply_markup=language_keyboard())
-        else:
-            await callback.message.answer(
-                tr(language, "subscription_ok"),
-                reply_markup=main_menu_keyboard(
-                    tr(language, "menu_chat"),
-                    tr(language, "menu_avatar"),
-                    tr(language, "menu_language"),
-                    tr(language, "menu_subscription"),
-                    tr(language, "menu_gift"),
-                ),
-            )
+        if not profile.channel_bonus_granted:
+            profile.channel_bonus_granted = True
+            profile.save()
+        await callback.message.answer(
+            tr(language, "channel_bonus_granted"),
+            reply_markup=main_menu_keyboard(
+                tr(language, "menu_chat"),
+                tr(language, "menu_avatar"),
+                tr(language, "menu_language"),
+                tr(language, "menu_subscription"),
+                tr(language, "menu_gift"),
+                tr(language, "menu_premium"),
+            ),
+        )
         await callback.answer()
 
     @router.callback_query(F.data.startswith("language:"))
@@ -116,7 +148,7 @@ def build_router(settings: Settings) -> Router:
         if not callback.from_user or not callback.message:
             return
         _, language = callback.data.split(":", 1)
-        user, profile = UserService.get_or_create_from_telegram(callback.from_user, settings.admin_ids)
+        _, profile = UserService.get_or_create_from_telegram(callback.from_user, settings.admin_ids)
         UserService.set_language(profile, language)
         avatars = AvatarService.list_active()
         await callback.message.answer(f"{tr(language, 'language_updated')}\n\n{tr(language, 'choose_avatar')}")
@@ -144,6 +176,7 @@ def build_router(settings: Settings) -> Router:
                 tr(language, "menu_language"),
                 tr(language, "menu_subscription"),
                 tr(language, "menu_gift"),
+                tr(language, "menu_premium"),
             ),
         )
         await callback.answer()
@@ -166,14 +199,24 @@ def build_router(settings: Settings) -> Router:
             pass
         await callback.answer()
 
+    @router.callback_query(F.data.startswith("premium_gallery:"))
+    async def premium_gallery_handler(callback: CallbackQuery) -> None:
+        if not callback.from_user or not callback.message:
+            return
+        _, avatar_id, photo_id = callback.data.split(":")
+        _, profile = UserService.get_or_create_from_telegram(callback.from_user, settings.admin_ids)
+        await send_premium_gallery(callback.message, callback.from_user.id, int(avatar_id), int(photo_id), profile.language)
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.answer()
+
     @router.chat_join_request()
     async def join_request_handler(join_request: ChatJoinRequest) -> None:
         user, _ = UserService.get_or_create_from_telegram(join_request.from_user, settings.admin_ids)
         channel = next(
-            (
-                item for item in SubscriptionGateService.active_channels()
-                if item.telegram_channel_id == join_request.chat.id
-            ),
+            (item for item in SubscriptionGateService.active_channels() if item.telegram_channel_id == join_request.chat.id),
             None,
         )
         if channel:
@@ -196,12 +239,12 @@ def build_router(settings: Settings) -> Router:
         if avatars:
             await send_avatar_card(message, avatars[0].id, profile.language)
 
-    @router.message(F.text.in_({"Subscription", "Подписка", "Пiдписка"}))
-    async def subscription_menu(message: Message) -> None:
+    @router.message(F.text.in_({"Messages", "Сообщения", "Повiдомлення"}))
+    async def messages_menu(message: Message) -> None:
         if not message.from_user:
             return
         _, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
-        await send_subscription_plans(message, profile.language)
+        await send_messages_menu(message, profile.language)
 
     @router.message(F.text.in_({"Send gift", "Подарок", "Подарунок"}))
     async def gift_menu(message: Message) -> None:
@@ -213,5 +256,16 @@ def build_router(settings: Settings) -> Router:
             await message.answer("No gifts available yet.")
             return
         await message.answer(tr(profile.language, "gift_choose"), reply_markup=gifts_keyboard(gifts))
+
+    @router.message(F.text.in_({"Premium photos", "Премиум фото", "Премiум фото"}))
+    async def premium_menu(message: Message) -> None:
+        if not message.from_user:
+            return
+        _, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
+        avatar = profile.selected_avatar
+        if not avatar:
+            await message.answer(tr(profile.language, "no_avatar_selected"))
+            return
+        await send_premium_gallery(message, message.from_user.id, avatar.id, None, profile.language)
 
     return router

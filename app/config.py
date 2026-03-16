@@ -21,6 +21,7 @@ class Settings:
     assets_dir: Path
     subscription_media_path: Path | None
     default_free_avatar_messages: int
+    channel_bonus_messages: int
     summary_window_size: int
     summary_batch_size: int
     log_level: str
@@ -42,7 +43,8 @@ def load_settings() -> Settings:
         db_path=Path(os.getenv("DB_PATH", BASE_DIR / "data" / "bot.sqlite3")),
         assets_dir=Path(os.getenv("ASSETS_DIR", BASE_DIR / "assets" / "avatars")),
         subscription_media_path=Path(subscription_media_raw) if subscription_media_raw else None,
-        default_free_avatar_messages=int(os.getenv("DEFAULT_FREE_AVATAR_MESSAGES", "10")),
+        default_free_avatar_messages=int(os.getenv("DEFAULT_FREE_AVATAR_MESSAGES", "20")),
+        channel_bonus_messages=int(os.getenv("CHANNEL_BONUS_MESSAGES", "20")),
         summary_window_size=int(os.getenv("SUMMARY_WINDOW_SIZE", "10")),
         summary_batch_size=int(os.getenv("SUMMARY_BATCH_SIZE", "10")),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
