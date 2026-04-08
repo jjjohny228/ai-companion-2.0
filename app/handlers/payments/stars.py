@@ -9,28 +9,34 @@ from app.services.billing_service import BillingService
 from app.services.gift_service import GiftService
 from app.services.photo_delivery_service import PhotoDeliveryService
 from app.services.premium_photo_service import PremiumPhotoService
+from app.services.translation_service import TranslationService
 from app.services.user_service import UserService
+from app.texts import format_plan_title, tr
 
 
 def build_router(settings: Settings) -> Router:
     router = Router()
     photo_delivery_service = PhotoDeliveryService(settings)
+    translation_service = TranslationService(settings)
 
     @router.callback_query(F.data.startswith("plan:"))
     async def buy_plan(callback) -> None:
         if not callback.from_user or not callback.message:
             return
+        _, profile = UserService.get_or_create_from_telegram(callback.from_user, settings.admin_ids)
+        language = profile.language
         _, plan_code = callback.data.split(":", 1)
         plan = BillingService.get_plan(plan_code)
         if not plan:
-            await callback.answer("Plan not found", show_alert=True)
+            await callback.answer(tr(language, "plan_not_found"), show_alert=True)
             return
+        localized_title = format_plan_title(language, plan.bot_message_quota)
         await callback.message.answer_invoice(
-            title=plan.title,
-            description=plan.title,
+            title=localized_title,
+            description=localized_title,
             payload=plan.code,
             currency="XTR",
-            prices=[LabeledPrice(label=plan.title, amount=plan.stars_price)],
+            prices=[LabeledPrice(label=localized_title, amount=plan.stars_price)],
         )
         await callback.answer()
 
@@ -41,19 +47,22 @@ def build_router(settings: Settings) -> Router:
         gift_id = int(callback.data.split(":")[1])
         gift = GiftService.get_active(gift_id)
         user, profile = UserService.get_or_create_from_telegram(callback.from_user, settings.admin_ids)
+        language = profile.language
         avatar = profile.selected_avatar
         if not gift:
-            await callback.answer("Gift not found", show_alert=True)
+            await callback.answer(tr(language, "gift_not_found"), show_alert=True)
             return
         if not avatar:
-            await callback.answer("Choose avatar first", show_alert=True)
+            await callback.answer(tr(language, "choose_avatar_first"), show_alert=True)
             return
+        localized_title = translation_service.translate_text(gift.title, language)
+        localized_description = translation_service.translate_text(gift.description, language)
         await callback.message.answer_invoice(
-            title=gift.title,
-            description=gift.description,
+            title=localized_title,
+            description=localized_description,
             payload=GiftService.build_payload(gift.id, avatar.id),
             currency="XTR",
-            prices=[LabeledPrice(label=gift.title, amount=gift.stars_price)],
+            prices=[LabeledPrice(label=localized_title, amount=gift.stars_price)],
         )
         await callback.answer()
 
@@ -72,7 +81,7 @@ def build_router(settings: Settings) -> Router:
             gift = GiftService.get_active(gift_id)
             avatar = Avatar.get_or_none(Avatar.id == avatar_id)
             if not gift or not avatar:
-                await message.answer("Unknown gift.")
+                await message.answer(tr(profile.language, "unknown_gift"))
                 return
             purchase = GiftService.register_purchase(
                 user=user,
@@ -81,7 +90,7 @@ def build_router(settings: Settings) -> Router:
                 telegram_payment_charge_id=message.successful_payment.telegram_payment_charge_id,
                 provider_payment_charge_id=message.successful_payment.provider_payment_charge_id,
             )
-            await message.answer("Gift sent successfully.")
+            await message.answer(tr(profile.language, "gift_success"))
             if purchase.rewarded_premium_photo_id and purchase.rewarded_premium_photo:
                 await photo_delivery_service.send_with_delay(
                     message=message,
@@ -91,7 +100,7 @@ def build_router(settings: Settings) -> Router:
                     mode="gift",
                 )
             else:
-                await message.answer("This gift does not unlock a premium photo yet.")
+                await message.answer(tr(profile.language, "gift_locked"))
             return
 
         plan = BillingService.get_plan(message.successful_payment.invoice_payload)
@@ -103,9 +112,9 @@ def build_router(settings: Settings) -> Router:
                 telegram_payment_charge_id=message.successful_payment.telegram_payment_charge_id,
                 provider_payment_charge_id=message.successful_payment.provider_payment_charge_id,
             )
-            await message.answer(f"Payment successful. Balance added: {plan.bot_message_quota}")
+            await message.answer(tr(profile.language, "payment_success").format(quota=plan.bot_message_quota))
             return
-        await message.answer("Unknown payment payload.")
+        await message.answer(tr(profile.language, "unknown_payment_payload"))
 
     @router.purchased_paid_media()
     async def purchased_paid_media_handler(event: PaidMediaPurchased) -> None:

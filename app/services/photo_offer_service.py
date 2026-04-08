@@ -35,6 +35,23 @@ class PhotoOfferService:
         return bool(PremiumPhotoService.available_for_user(avatar, user))
 
     @staticmethod
+    def has_sent_lite_photo(assets_dir: Path, user: User, avatar: Avatar) -> bool:
+        avatar_dir = AvatarService.avatar_dir(assets_dir, avatar.id)
+        lite_dir = avatar_dir / "photos"
+        lite_paths = {str(path) for path in PhotoOfferService._collect_photos(lite_dir)}
+        if not lite_paths:
+            return False
+        return (
+            PhotoSendHistory.select()
+            .where(
+                (PhotoSendHistory.user == user)
+                & (PhotoSendHistory.avatar == avatar)
+                & (PhotoSendHistory.photo_path.in_(lite_paths))
+            )
+            .exists()
+        )
+
+    @staticmethod
     def pick_random_lite_photo(assets_dir: Path, user: User, avatar: Avatar) -> Path | None:
         available = PhotoOfferService.list_available_photos(assets_dir, user, avatar, bucket="photos")
         if not available:

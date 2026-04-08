@@ -1,4 +1,5 @@
 aiogram==3.21.0
+certifi
 langchain==0.3.26
 langchain-xai
 peewee==3.17.6

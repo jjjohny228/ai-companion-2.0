@@ -16,7 +16,7 @@ from app.services.dialog_service import DialogService
 from app.services.photo_delivery_service import PhotoDeliveryService
 from app.services.subscription_gate import SubscriptionGateService
 from app.services.user_service import UserService
-from app.texts import format_plans, tr
+from app.texts import format_plan_title, format_plans, format_stars, tr
 
 
 def build_router(settings: Settings, dialog_service: DialogService) -> Router:
@@ -29,7 +29,10 @@ def build_router(settings: Settings, dialog_service: DialogService) -> Router:
             profile, settings.default_free_avatar_messages, settings.channel_bonus_messages
         )
         available_messages = BillingService.available_messages(profile, effective_limit)
-        plan_rows = [(plan.code, f"{plan.title} - {plan.stars_price} Stars") for plan in BillingService.list_plans()]
+        plan_rows = [
+            (plan.code, f"{format_plan_title(language, plan.bot_message_quota)} - {format_stars(language, plan.stars_price)}")
+            for plan in BillingService.list_plans()
+        ]
         if settings.subscription_media_path and settings.subscription_media_path.exists():
             await message.answer_photo(
                 FSInputFile(settings.subscription_media_path),
@@ -108,6 +111,7 @@ def build_router(settings: Settings, dialog_service: DialogService) -> Router:
                 photo_path=pending.premium_photo.photo_path,
                 star_count=pending.premium_photo.stars_price,
                 payload=f"premium_photo:{pending.premium_photo.id}",
+                send_teaser=False,
             )
         if pending.custom_request:
             media_type, description = pending.custom_request

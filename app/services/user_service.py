@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from aiogram.types import User as TgUser
+from peewee import fn
 
 from app.constants import DEFAULT_LANGUAGE
 from app.db.models import User, UserProfile
@@ -48,5 +49,16 @@ class UserService:
                 "is_admin": False,
             },
         )
+        profile, _ = UserProfile.get_or_create(user=user, defaults={"language": DEFAULT_LANGUAGE})
+        return user, profile
+
+    @staticmethod
+    def get_by_username(username: str) -> tuple[User, UserProfile] | None:
+        normalized = username.strip().lstrip("@")
+        if not normalized:
+            return None
+        user = User.get_or_none(fn.LOWER(User.username) == normalized.lower())
+        if not user:
+            return None
         profile, _ = UserProfile.get_or_create(user=user, defaults={"language": DEFAULT_LANGUAGE})
         return user, profile

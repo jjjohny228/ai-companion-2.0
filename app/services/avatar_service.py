@@ -7,6 +7,18 @@ from app.db.models import Avatar, UserProfile
 
 class AvatarService:
     @staticmethod
+    def localized_display_name(avatar: Avatar, language: str) -> str:
+        return avatar.display_name
+
+    @staticmethod
+    def localized_description(avatar: Avatar, language: str) -> str:
+        if language == "ru" and avatar.description_ru:
+            return avatar.description_ru
+        if language == "uk" and avatar.description_uk:
+            return avatar.description_uk
+        return avatar.description or ""
+
+    @staticmethod
     def list_active() -> list[Avatar]:
         return list(Avatar.select().where(Avatar.is_active == True).order_by(Avatar.sort_order, Avatar.id))
 

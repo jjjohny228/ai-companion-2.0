@@ -22,28 +22,45 @@ from app.services.billing_service import BillingService
 from app.services.gift_service import GiftService
 from app.services.premium_photo_service import PremiumPhotoService
 from app.services.subscription_gate import SubscriptionGateService
+from app.services.translation_service import TranslationService
 from app.services.user_service import UserService
-from app.texts import format_plans, tr
+from app.texts import format_plan_title, format_plans, format_stars, tr
 
 
 def build_router(settings: Settings) -> Router:
     router = Router()
+    translation_service = TranslationService(settings)
 
     async def send_avatar_card(target_message: Message, avatar_id: int, language: str) -> None:
         avatar = AvatarService.get_active(avatar_id)
         if not avatar:
-            await target_message.answer("Avatar not found.")
+            await target_message.answer(tr(language, "avatar_not_found"))
             return
+        needs_save = False
+        if language == "ru" and avatar.description and not avatar.description_ru:
+            avatar.description_ru = translation_service.translate_text(avatar.description, language)
+            needs_save = True
+        elif language == "uk" and avatar.description and not avatar.description_uk:
+            avatar.description_uk = translation_service.translate_text(avatar.description, language)
+            needs_save = True
+        if needs_save:
+            avatar.save()
         has_prev, has_next = AvatarService.get_navigation_flags(avatar.id)
-        caption = f"<b>{escape(avatar.display_name)}</b>\n{escape(avatar.description or '')}".strip()
+        caption = (
+            f"<b>{escape(AvatarService.localized_display_name(avatar, language))}</b>\n"
+            f"{escape(AvatarService.localized_description(avatar, language))}"
+        ).strip()
         if avatar.main_photo_path and Path(avatar.main_photo_path).exists():
             await target_message.answer_photo(
                 FSInputFile(avatar.main_photo_path),
                 caption=caption,
-                reply_markup=avatar_keyboard(avatar, has_prev, has_next),
+                reply_markup=avatar_keyboard(avatar, has_prev, has_next, tr(language, "choose_button")),
             )
         else:
-            await target_message.answer(caption, reply_markup=avatar_keyboard(avatar, has_prev, has_next))
+            await target_message.answer(
+                caption,
+                reply_markup=avatar_keyboard(avatar, has_prev, has_next, tr(language, "choose_button")),
+            )
 
     async def send_messages_menu(message: Message, language: str) -> None:
         _, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
@@ -51,7 +68,10 @@ def build_router(settings: Settings) -> Router:
             profile, settings.default_free_avatar_messages, settings.channel_bonus_messages
         )
         available_messages = BillingService.available_messages(profile, effective_limit)
-        plan_rows = [(plan.code, f"{plan.title} - {plan.stars_price} Stars") for plan in BillingService.list_plans()]
+        plan_rows = [
+            (plan.code, f"{format_plan_title(language, plan.bot_message_quota)} - {format_stars(language, plan.stars_price)}")
+            for plan in BillingService.list_plans()
+        ]
         if settings.subscription_media_path and settings.subscription_media_path.exists():
             await message.answer_photo(
                 FSInputFile(settings.subscription_media_path),
@@ -76,7 +96,7 @@ def build_router(settings: Settings) -> Router:
     async def send_premium_gallery(message: Message, telegram_user_id: int, avatar_id: int, photo_id: int | None, language: str) -> None:
         avatar = AvatarService.get_active(avatar_id)
         if not avatar:
-            await message.answer("Avatar not found.")
+            await message.answer(tr(language, "avatar_not_found"))
             return
         user, _ = UserService.get_or_create_by_telegram_id(telegram_user_id)
         available = PremiumPhotoService.available_for_user(avatar, user)
@@ -85,7 +105,7 @@ def build_router(settings: Settings) -> Router:
             return
         current = next((item for item in available if item.id == photo_id), available[0])
         prev_photo_id, next_photo_id = PremiumPhotoService.neighbors(available, current.id)
-        caption = current.description or avatar.display_name
+        caption = current.description or AvatarService.localized_display_name(avatar, language)
         await message.bot.send_paid_media(
             chat_id=message.chat.id,
             star_count=current.stars_price,
@@ -151,9 +171,22 @@ def build_router(settings: Settings) -> Router:
         _, profile = UserService.get_or_create_from_telegram(callback.from_user, settings.admin_ids)
         UserService.set_language(profile, language)
         avatars = AvatarService.list_active()
-        await callback.message.answer(f"{tr(language, 'language_updated')}\n\n{tr(language, 'choose_avatar')}")
-        if avatars:
-            await send_avatar_card(callback.message, avatars[0].id, language)
+        if profile.selected_avatar and profile.selected_avatar.is_active:
+            await callback.message.answer(
+                tr(language, "language_updated"),
+                reply_markup=main_menu_keyboard(
+                    tr(language, "menu_chat"),
+                    tr(language, "menu_avatar"),
+                    tr(language, "menu_language"),
+                    tr(language, "menu_subscription"),
+                    tr(language, "menu_gift"),
+                    tr(language, "menu_premium"),
+                ),
+            )
+        else:
+            await callback.message.answer(f"{tr(language, 'language_updated')}\n\n{tr(language, 'choose_avatar')}")
+            if avatars:
+                await send_avatar_card(callback.message, avatars[0].id, language)
         await callback.answer()
 
     @router.callback_query(F.data.startswith("avatar:choose:"))
@@ -246,16 +279,23 @@ def build_router(settings: Settings) -> Router:
         _, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
         await send_messages_menu(message, profile.language)
 
-    @router.message(F.text.in_({"Send gift", "Подарок", "Подарунок"}))
+    @router.message(F.text.in_({"Send gift", "Gifts", "Подарок", "Подарки", "Подарунок", "Подiрунки"}))
     async def gift_menu(message: Message) -> None:
         if not message.from_user:
             return
         _, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
         gifts = GiftService.list_active()
         if not gifts:
-            await message.answer("No gifts available yet.")
+            await message.answer(tr(profile.language, "gift_empty"))
             return
-        await message.answer(tr(profile.language, "gift_choose"), reply_markup=gifts_keyboard(gifts))
+        gift_rows = [
+            (
+                gift.id,
+                f"{translation_service.translate_text(gift.title, profile.language)} - {format_stars(profile.language, gift.stars_price)}",
+            )
+            for gift in gifts
+        ]
+        await message.answer(tr(profile.language, "gift_choose"), reply_markup=gifts_keyboard(gift_rows))
 
     @router.message(F.text.in_({"Premium photos", "Премиум фото", "Премiум фото"}))
     async def premium_menu(message: Message) -> None:

@@ -4,7 +4,7 @@ from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMar
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from app.constants import LANGUAGES
-from app.db.models import Avatar, Channel, Gift
+from app.db.models import Avatar, Channel
 
 
 def subscription_keyboard(channels: list[Channel], check_text: str) -> InlineKeyboardMarkup:
@@ -25,9 +25,9 @@ def language_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def avatar_keyboard(avatar: Avatar, has_prev: bool, has_next: bool) -> InlineKeyboardMarkup:
+def avatar_keyboard(avatar: Avatar, has_prev: bool, has_next: bool, choose_text: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="Choose", callback_data=f"avatar:choose:{avatar.id}")
+    builder.button(text=choose_text, callback_data=f"avatar:choose:{avatar.id}")
     if has_prev:
         builder.button(text="⬅️", callback_data=f"avatar:nav:{avatar.id}:prev")
     if has_next:
@@ -59,35 +59,57 @@ def subscription_plans_keyboard(plan_rows: list[tuple[str, str]]) -> InlineKeybo
     return builder.as_markup()
 
 
-def admin_stats_keyboard() -> InlineKeyboardMarkup:
+def admin_stats_keyboard(day_text: str, month_text: str, all_time_text: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="Day", callback_data="admin_stats:day")
-    builder.button(text="Month", callback_data="admin_stats:month")
-    builder.button(text="All time", callback_data="admin_stats:all")
+    builder.button(text=day_text, callback_data="admin_stats:day")
+    builder.button(text=month_text, callback_data="admin_stats:month")
+    builder.button(text=all_time_text, callback_data="admin_stats:all")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def admin_avatar_keyboard() -> ReplyKeyboardMarkup:
+def admin_avatar_keyboard(add_avatar_text: str, edit_avatars_text: str, back_text: str) -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text="Add avatar"), KeyboardButton(text="Edit avatars"))
-    builder.row(KeyboardButton(text="Back to admin"))
+    builder.row(KeyboardButton(text=add_avatar_text), KeyboardButton(text=edit_avatars_text))
+    builder.row(KeyboardButton(text=back_text))
     return builder.as_markup(resize_keyboard=True)
 
 
-def admin_menu_keyboard() -> ReplyKeyboardMarkup:
+def admin_channel_keyboard(add_channel_text: str, edit_channels_text: str, back_text: str) -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text="Statistics"), KeyboardButton(text="Avatars"))
-    builder.row(KeyboardButton(text="Gifts"), KeyboardButton(text="Add channel"))
-    builder.row(KeyboardButton(text="Broadcast"), KeyboardButton(text="Send user"))
-    builder.row(KeyboardButton(text="Download DB"))
+    builder.row(KeyboardButton(text=add_channel_text), KeyboardButton(text=edit_channels_text))
+    builder.row(KeyboardButton(text=back_text))
     return builder.as_markup(resize_keyboard=True)
 
 
-def gifts_keyboard(gifts: list[Gift]) -> InlineKeyboardMarkup:
+def admin_cancel_keyboard(cancel_text: str) -> ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text=cancel_text))
+    return builder.as_markup(resize_keyboard=True)
+
+
+def admin_menu_keyboard(
+    statistics_text: str,
+    avatars_text: str,
+    gifts_text: str,
+    add_channel_text: str,
+    broadcast_text: str,
+    send_user_text: str,
+    grant_balance_text: str,
+    download_db_text: str,
+) -> ReplyKeyboardMarkup:
+    builder = ReplyKeyboardBuilder()
+    builder.row(KeyboardButton(text=statistics_text), KeyboardButton(text=avatars_text))
+    builder.row(KeyboardButton(text=gifts_text), KeyboardButton(text=add_channel_text))
+    builder.row(KeyboardButton(text=broadcast_text), KeyboardButton(text=send_user_text))
+    builder.row(KeyboardButton(text=grant_balance_text), KeyboardButton(text=download_db_text))
+    return builder.as_markup(resize_keyboard=True)
+
+
+def gifts_keyboard(gift_rows: list[tuple[int, str]]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for gift in gifts:
-        builder.button(text=f"{gift.title} - {gift.stars_price} Stars", callback_data=f"gift:{gift.id}")
+    for gift_id, title in gift_rows:
+        builder.button(text=title, callback_data=f"gift:{gift_id}")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -102,8 +124,8 @@ def premium_photos_keyboard(avatar_id: int, prev_photo_id: int | None, next_phot
     return builder.as_markup()
 
 
-def admin_gift_keyboard() -> ReplyKeyboardMarkup:
+def admin_gift_keyboard(add_gift_text: str, edit_gifts_text: str, back_text: str) -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text="Add gift"), KeyboardButton(text="Edit gifts"))
-    builder.row(KeyboardButton(text="Back to admin"))
+    builder.row(KeyboardButton(text=add_gift_text), KeyboardButton(text=edit_gifts_text))
+    builder.row(KeyboardButton(text=back_text))
     return builder.as_markup(resize_keyboard=True)

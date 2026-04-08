@@ -37,6 +37,10 @@ class AdminGiftEditState(StatesGroup):
     waiting_value = State()
 
 
+class AdminChannelEditState(StatesGroup):
+    waiting_value = State()
+
+
 class AdminBroadcastState(StatesGroup):
     waiting_text = State()
     waiting_button = State()
@@ -49,3 +53,16 @@ class AdminDirectSendState(StatesGroup):
     waiting_button = State()
     waiting_media = State()
     waiting_stars = State()
+
+
+class AdminGrantBalanceState(StatesGroup):
+    waiting_username = State()
+    waiting_amount = State()
+
+
+class AdminChannelCreateState(StatesGroup):
+    waiting_chat_id = State()
+    waiting_title = State()
+    waiting_link = State()
+    waiting_is_private = State()
+    waiting_join_request = State()
