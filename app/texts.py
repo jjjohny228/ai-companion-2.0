@@ -179,6 +179,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_message_sent": "Message sent.",
         "admin_send_numeric_stars_amount": "Send numeric Stars amount, for example 2000.",
         "admin_paid_media_sent": "Paid media sent.",
+        "admin_target_user_blocked_bot": "This user blocked the bot, so the message cannot be delivered.",
         "admin_avatar_slug_taken": "This slug is already taken. Enter another one.",
     },
     "ru": {
@@ -356,6 +357,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_message_sent": "Сообщение отправлено.",
         "admin_send_numeric_stars_amount": "Отправьте числовое количество Stars, например 2000.",
         "admin_paid_media_sent": "Платный медиафайл отправлен.",
+        "admin_target_user_blocked_bot": "Этот пользователь заблокировал бота, поэтому отправка сообщения невозможна.",
         "admin_avatar_slug_taken": "Этот slug уже занят. Введите другой.",
     },
     "uk": {
@@ -533,6 +535,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_message_sent": "Повiдомлення надiслано.",
         "admin_send_numeric_stars_amount": "Надiшлiть числову кiлькiсть Stars, наприклад 2000.",
         "admin_paid_media_sent": "Платний медiафайл надiслано.",
+        "admin_target_user_blocked_bot": "Цей користувач заблокував бота, тому надсилання повiдомлення неможливе.",
         "admin_avatar_slug_taken": "Цей slug вже зайнятий. Введiть iнший.",
     },
 }

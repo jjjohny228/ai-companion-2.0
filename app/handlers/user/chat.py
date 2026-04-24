@@ -13,6 +13,7 @@ from app.services.avatar_service import AvatarService
 from app.services.billing_service import BillingService
 from app.services.custom_request_service import CustomRequestService
 from app.services.dialog_service import DialogService
+from app.services.image_analysis_service import ImageAnalysisService
 from app.services.photo_delivery_service import PhotoDeliveryService
 from app.services.subscription_gate import SubscriptionGateService
 from app.services.user_service import UserService
@@ -22,6 +23,7 @@ from app.texts import format_plan_title, format_plans, format_stars, tr
 def build_router(settings: Settings, dialog_service: DialogService) -> Router:
     router = Router()
     photo_delivery_service = PhotoDeliveryService(settings)
+    image_analysis_service = ImageAnalysisService(settings)
 
     async def send_subscription_plans(message: Message, language: str) -> None:
         _, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
@@ -63,11 +65,8 @@ def build_router(settings: Settings, dialog_service: DialogService) -> Router:
             await asyncio.sleep(chunk)
             elapsed += chunk
 
-    @router.message(F.text)
-    async def chat_handler(message: Message, bot: Bot) -> None:
-        if not message.from_user or not message.text:
-            return
-        if message.text.startswith("/"):
+    async def process_chat_input(message: Message, bot: Bot, incoming_text: str) -> None:
+        if not message.from_user or not incoming_text.strip():
             return
         user, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
         language = profile.language
@@ -87,7 +86,7 @@ def build_router(settings: Settings, dialog_service: DialogService) -> Router:
                 await send_subscription_plans(message, language)
             return
 
-        answer, pending = await dialog_service.answer(user, profile, avatar, message.text)
+        answer, pending = await dialog_service.answer(user, profile, avatar, incoming_text)
         BillingService.consume_avatar_message(profile, effective_limit)
         await simulate_typing(bot, message.chat.id, answer)
         await message.answer(
@@ -130,5 +129,37 @@ def build_router(settings: Settings, dialog_service: DialogService) -> Router:
                         ]
                     ),
                 )
+
+    @router.message(F.text)
+    async def chat_handler(message: Message, bot: Bot) -> None:
+        if not message.from_user or not message.text:
+            return
+        if message.text.startswith("/"):
+            return
+        await process_chat_input(message, bot, message.text)
+
+    @router.message(F.photo)
+    async def photo_chat_handler(message: Message, bot: Bot) -> None:
+        if not message.from_user or not message.photo:
+            return
+        caption = (message.caption or "").strip()
+        user, profile = UserService.get_or_create_from_telegram(message.from_user, settings.admin_ids)
+        avatar = profile.selected_avatar
+        if not avatar or not avatar.is_active:
+            await message.answer(tr(profile.language, "no_avatar_selected"))
+            return
+        image_description = await image_analysis_service.describe_telegram_photo(
+            bot=bot,
+            photo=message.photo[-1],
+            user_caption=caption,
+            language=profile.language,
+        )
+        composed_input = (
+            "The user sent a photo in chat.\n"
+            f"Image analysis: {image_description}\n"
+            f"User caption: {caption or 'none'}\n"
+            "Respond naturally to the image and continue the conversation."
+        )
+        await process_chat_input(message, bot, composed_input)
 
     return router

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, Message
@@ -39,6 +41,7 @@ from app.services.premium_photo_service import PremiumPhotoService
 
 def build_router(settings: Settings) -> Router:
     router = Router()
+    logger = logging.getLogger(__name__)
     translation_service = TranslationService(settings)
     admin_back_texts = {"Back to admin", "Назад в админку", "Назад в адмінку"}
     admin_cancel_texts = {"Cancel", "Отмена", "Скасувати"}
@@ -201,15 +204,42 @@ def build_router(settings: Settings) -> Router:
         builder.button(text=parts[0], url=parts[1])
         return builder.as_markup()
 
-    async def send_to_user(chat_id: int, text: str, media_kind: str | None, media_path: str | None, button: str | None, bot) -> None:
+    def log_blocked_user(chat_id: int, action: str, exc: TelegramForbiddenError) -> None:
+        logger.warning("bot_blocked_by_user action=%s chat_id=%s error=%s", action, chat_id, exc)
+
+    async def send_to_user(chat_id: int, text: str, media_kind: str | None, media_path: str | None, button: str | None, bot) -> bool:
         reply_markup = optional_button_markup(button)
-        if media_kind == "photo" and media_path:
-            await bot.send_photo(chat_id, FSInputFile(media_path), caption=text, reply_markup=reply_markup)
-            return
-        if media_kind == "video" and media_path:
-            await bot.send_video(chat_id, FSInputFile(media_path), caption=text, reply_markup=reply_markup)
-            return
-        await bot.send_message(chat_id, text, reply_markup=reply_markup)
+        try:
+            if media_kind == "photo" and media_path:
+                await bot.send_photo(chat_id, FSInputFile(media_path), caption=text, reply_markup=reply_markup)
+                return True
+            if media_kind == "video" and media_path:
+                await bot.send_video(chat_id, FSInputFile(media_path), caption=text, reply_markup=reply_markup)
+                return True
+            await bot.send_message(chat_id, text, reply_markup=reply_markup)
+            return True
+        except TelegramForbiddenError as exc:
+            log_blocked_user(chat_id, "direct_or_broadcast_message", exc)
+            return False
+
+    async def send_file_id_media_to_user(
+        chat_id: int,
+        text: str,
+        media_kind: str,
+        media_file_id: str,
+        button: str | None,
+        bot,
+    ) -> bool:
+        reply_markup = optional_button_markup(button)
+        try:
+            if media_kind == "photo":
+                await bot.send_photo(chat_id, media_file_id, caption=text, reply_markup=reply_markup)
+                return True
+            await bot.send_video(chat_id, media_file_id, caption=text, reply_markup=reply_markup)
+            return True
+        except TelegramForbiddenError as exc:
+            log_blocked_user(chat_id, f"broadcast_{media_kind}", exc)
+            return False
 
     async def send_paid_media_to_user(
         chat_id: int,
@@ -219,20 +249,25 @@ def build_router(settings: Settings) -> Router:
         star_count: int,
         button: str | None,
         bot,
-    ) -> None:
+    ) -> bool:
         reply_markup = optional_button_markup(button)
         if media_kind == "photo":
             media = [InputPaidMediaPhoto(media=media_file_id)]
         else:
             media = [InputPaidMediaVideo(media=media_file_id)]
-        await bot.send_paid_media(
-            chat_id=chat_id,
-            star_count=star_count,
-            media=media,
-            caption=text,
-            reply_markup=reply_markup,
-            protect_content=True,
-        )
+        try:
+            await bot.send_paid_media(
+                chat_id=chat_id,
+                star_count=star_count,
+                media=media,
+                caption=text,
+                reply_markup=reply_markup,
+                protect_content=True,
+            )
+            return True
+        except TelegramForbiddenError as exc:
+            log_blocked_user(chat_id, f"paid_{media_kind}", exc)
+            return False
 
     async def start_premium_photo_metadata_flow(state: FSMContext, avatar_id: int, saved_path: Path) -> None:
         await state.update_data(premium_avatar_id=avatar_id, pending_premium_photo_path=str(saved_path))
@@ -1203,9 +1238,10 @@ def build_router(settings: Settings) -> Router:
         sent = 0
         for user in users:
             try:
-                await send_to_user(user.telegram_id, data["broadcast_text"], None, None, data.get("broadcast_button"), message.bot)
-                sent += 1
+                if await send_to_user(user.telegram_id, data["broadcast_text"], None, None, data.get("broadcast_button"), message.bot):
+                    sent += 1
             except Exception:
+                logger.exception("broadcast_send_failed chat_id=%s media_kind=text", user.telegram_id)
                 continue
         await state.clear()
         await message.answer(tr(admin_language_by_user_id(message.from_user.id), "admin_broadcast_sent").format(sent=sent))
@@ -1218,14 +1254,17 @@ def build_router(settings: Settings) -> Router:
         sent = 0
         for user in users:
             try:
-                await message.bot.send_photo(
+                if await send_file_id_media_to_user(
                     user.telegram_id,
+                    data["broadcast_text"],
+                    "photo",
                     file_id,
-                    caption=data["broadcast_text"],
-                    reply_markup=optional_button_markup(data.get("broadcast_button")),
-                )
-                sent += 1
+                    data.get("broadcast_button"),
+                    message.bot,
+                ):
+                    sent += 1
             except Exception:
+                logger.exception("broadcast_send_failed chat_id=%s media_kind=photo", user.telegram_id)
                 continue
         await state.clear()
         await message.answer(tr(admin_language_by_user_id(message.from_user.id), "admin_broadcast_photo_sent").format(sent=sent))
@@ -1238,14 +1277,17 @@ def build_router(settings: Settings) -> Router:
         sent = 0
         for user in users:
             try:
-                await message.bot.send_video(
+                if await send_file_id_media_to_user(
                     user.telegram_id,
+                    data["broadcast_text"],
+                    "video",
                     file_id,
-                    caption=data["broadcast_text"],
-                    reply_markup=optional_button_markup(data.get("broadcast_button")),
-                )
-                sent += 1
+                    data.get("broadcast_button"),
+                    message.bot,
+                ):
+                    sent += 1
             except Exception:
+                logger.exception("broadcast_send_failed chat_id=%s media_kind=video", user.telegram_id)
                 continue
         await state.clear()
         await message.answer(tr(admin_language_by_user_id(message.from_user.id), "admin_broadcast_video_sent").format(sent=sent))
@@ -1356,16 +1398,27 @@ def build_router(settings: Settings) -> Router:
         if not message.text or message.text.strip().lower() != "skip":
             return
         data = await state.get_data()
-        await send_to_user(
-            data["target_user_id"],
-            data["direct_text"],
-            None,
-            None,
-            data.get("direct_button"),
-            message.bot,
-        )
+        language = admin_language_by_user_id(message.from_user.id)
+        try:
+            sent = await send_to_user(
+                data["target_user_id"],
+                data["direct_text"],
+                None,
+                None,
+                data.get("direct_button"),
+                message.bot,
+            )
+        except Exception:
+            logger.exception("direct_send_failed chat_id=%s media_kind=text", data["target_user_id"])
+            raise
         await state.clear()
-        await message.answer(tr(admin_language_by_user_id(message.from_user.id), "admin_message_sent"))
+        if not sent:
+            await message.answer(
+                tr(language, "admin_target_user_blocked_bot"),
+                reply_markup=admin_menu_markup(language),
+            )
+            return
+        await message.answer(tr(language, "admin_message_sent"), reply_markup=admin_menu_markup(language))
 
     @router.message(AdminDirectSendState.waiting_media, F.photo)
     async def direct_send_photo(message: Message, state: FSMContext) -> None:
@@ -1386,15 +1439,27 @@ def build_router(settings: Settings) -> Router:
             return
         data = await state.get_data()
         stars_price = int(message.text.strip())
-        await send_paid_media_to_user(
-            chat_id=data["target_user_id"],
-            text=data["direct_text"],
-            media_kind=data["direct_media_kind"],
-            media_file_id=data["direct_media_file_id"],
-            star_count=stars_price,
-            button=data.get("direct_button"),
-            bot=message.bot,
-        )
+        language = admin_language_by_user_id(message.from_user.id)
+        try:
+            sent = await send_paid_media_to_user(
+                chat_id=data["target_user_id"],
+                text=data["direct_text"],
+                media_kind=data["direct_media_kind"],
+                media_file_id=data["direct_media_file_id"],
+                star_count=stars_price,
+                button=data.get("direct_button"),
+                bot=message.bot,
+            )
+        except Exception:
+            logger.exception("direct_send_failed chat_id=%s media_kind=%s", data["target_user_id"], data["direct_media_kind"])
+            raise
+        if not sent:
+            await state.clear()
+            await message.answer(
+                tr(language, "admin_target_user_blocked_bot"),
+                reply_markup=admin_menu_markup(language),
+            )
+            return
         target_user = User.get_or_none(User.telegram_id == data["target_user_id"])
         if target_user:
             CustomRequestService.mark_delivered(
@@ -1404,6 +1469,6 @@ def build_router(settings: Settings) -> Router:
                 caption_text=data["direct_text"],
             )
         await state.clear()
-        await message.answer(tr(admin_language_by_user_id(message.from_user.id), "admin_paid_media_sent"))
+        await message.answer(tr(language, "admin_paid_media_sent"), reply_markup=admin_menu_markup(language))
 
     return router

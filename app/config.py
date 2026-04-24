@@ -16,6 +16,7 @@ class Settings:
     bot_token: str
     xai_api_key: str
     xai_model: str
+    xai_vision_model: str
     deepl_api_key: str
     deepl_api_url: str
     admin_ids: tuple[int, ...]
@@ -41,6 +42,7 @@ def load_settings() -> Settings:
         bot_token=os.getenv("BOT_TOKEN", ""),
         xai_api_key=os.getenv("XAI_API_KEY", os.getenv("OPENAI_API_KEY", "")),
         xai_model=os.getenv("XAI_MODEL", "grok-3-latest"),
+        xai_vision_model=os.getenv("XAI_VISION_MODEL", "grok-4.20-reasoning"),
         deepl_api_key=os.getenv("DEEPL_API_KEY", ""),
         deepl_api_url=os.getenv("DEEPL_API_URL", "").strip(),
         admin_ids=_parse_admin_ids(os.getenv("ADMIN_IDS")),
